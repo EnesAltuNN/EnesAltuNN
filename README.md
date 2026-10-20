@@ -6,4 +6,3 @@
   <img alt="contribution grid snake" src="https://raw.githubusercontent.com/EnesAltuNN/EnesAltuNN/output/github-snake.svg" />
 </picture>
 
-- [tr-banking-dashboard](https://github.com/EnesAltuNN/tr-banking-dashboard)
