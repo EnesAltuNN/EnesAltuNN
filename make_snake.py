@@ -3,7 +3,10 @@
 Static artwork: the grid is seeded noise, not real contribution data, so it
 always looks full regardless of how much was committed that week.
 """
+import datetime
+import os
 import random
+import sys
 
 COLS, ROWS = 53, 7
 CELL, GAP, PAD = 12, 2, 10
@@ -42,7 +45,7 @@ def path():
     return cells, stops[-1][0], cells, stops
 
 
-def svg(theme, seed=7):
+def svg(theme, seed):
     rnd = random.Random(seed)
     cells, total, _, stops = path()
     unit = DUR / total
@@ -62,7 +65,9 @@ def svg(theme, seed=7):
            f'<g transform="translate({PAD},{PAD})" style="--e:{theme["empty"]}">']
 
     for c, r, t in cells:
-        color = rnd.choices(theme["levels"], weights=(25, 30, 25, 20))[0]
+        # grey cells in the mix too, so it reads as a real graph, not a green block
+        palette = [theme["empty"]] + theme["levels"]
+        color = rnd.choices(palette, weights=(22, 22, 24, 18, 14))[0]
         delay = -(DUR - t * unit)
         out.append(f'<rect class="d" x="{c * PITCH}" y="{r * PITCH}" width="{CELL}" '
                    f'height="{CELL}" rx="3" fill="{color}" '
@@ -93,6 +98,10 @@ def check():
 
 if __name__ == "__main__":
     check()
+    out = sys.argv[1] if len(sys.argv) > 1 else "."
+    os.makedirs(out, exist_ok=True)
+    seed = datetime.date.today().isoformat()      # new pattern every day
     for name, theme in (("snake-light.svg", LIGHT), ("snake-dark.svg", DARK)):
-        open(name, "w", encoding="utf-8", newline="\n").write(svg(theme))
-        print(name, "ok")
+        dest = os.path.join(out, name)
+        open(dest, "wb").write(svg(theme, seed + name).encode())
+        print(dest, seed)
