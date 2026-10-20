@@ -1,53 +1,82 @@
-"""Generate a decorative contribution-grid snake SVG (light + dark).
+"""Generate the profile snake SVG (light + dark).
 
-Static artwork: the grid is seeded noise, not real contribution data, so it
-always looks full regardless of how much was committed that week.
+The grid spells ENES ALTUN in a 5x7 bitmap font; the snake crosses it
+left to right, eating the letters from the E to the final N.
 """
 import datetime
 import os
 import random
 import sys
 
-COLS, ROWS = 53, 7
+TEXT = "ENES ALTUN"
+FONT = {
+    "E": ["#####", "#....", "#....", "####.", "#....", "#....", "#####"],
+    "N": ["#...#", "##..#", "##..#", "#.#.#", "#..##", "#..##", "#...#"],
+    "S": [".####", "#....", "#....", ".###.", "....#", "....#", "####."],
+    "A": [".###.", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"],
+    "L": ["#....", "#....", "#....", "#....", "#....", "#....", "#####"],
+    "T": ["#####", "..#..", "..#..", "..#..", "..#..", "..#..", "..#.."],
+    "U": ["#...#", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."],
+}
+GLYPH_W, ROWS = 5, 7
+KERN, SPACE = 1, 3           # columns between letters / for a word break
+
 CELL, GAP, PAD = 12, 2, 10
 PITCH = CELL + GAP
 SEG = 5                      # snake length in cells
 DUR = 20.0                   # seconds per loop
-OFF = 4                      # cells the snake travels off-grid before wrapping
+OFF = 4                      # cells travelled off-grid before wrapping
 
 LIGHT = dict(empty="#ebedf0", levels=["#9be9a8", "#40c463", "#30a14e", "#216e39"],
-             snake="#6f42c1", bg="none")
+             snake="#6f42c1")
 DARK = dict(empty="#161b22", levels=["#0e4429", "#006d32", "#26a641", "#39d353"],
-            snake="#a371f7", bg="none")
+            snake="#a371f7")
+
+
+def letters():
+    """Lay TEXT out on the grid. Returns (total columns, {(col, row)} that are lit)."""
+    lit, c = set(), 0
+    for ch in TEXT:
+        if ch == " ":
+            c += SPACE
+            continue
+        for r, line in enumerate(FONT[ch]):
+            for dc, px in enumerate(line):
+                if px == "#":
+                    lit.add((c + dc, r))
+        c += GLYPH_W + KERN
+    return c - KERN, lit
+
+
+COLS, LIT = letters()
 
 
 def path():
     """Serpentine over every cell, then off-grid right and back on from the left.
 
-    Returns (cells, stops): cells is [(col, row, t_units)] in eating order,
-    stops is [(t_units, col, row)] keyframe corners for the snake.
+    Returns (cells, loop length, stops): cells is [(col, row, t_units)] in eating
+    order, stops is [(t_units, col, row)] the snake's keyframe corners.
     """
     cells, stops, t = [], [], 0
     for c in range(COLS):
-        rows = range(ROWS) if c % 2 == 0 else range(ROWS - 1, -1, -1)
-        rows = list(rows)
+        rows = list(range(ROWS) if c % 2 == 0 else range(ROWS - 1, -1, -1))
         stops.append((t, c, rows[0]))
         for i, r in enumerate(rows):
             cells.append((c, r, t + i))
         t += ROWS - 1
         stops.append((t, c, rows[-1]))
-        t += 1                                  # step sideways into next column
-    t -= 1                                      # no sideways step after last column
+        t += 1                                   # step sideways into next column
+    t -= 1                                       # no sideways step after the last
     last_row = stops[-1][2]
-    stops.append((t + OFF, COLS - 1 + OFF, last_row))      # glide off the right edge
-    stops.append((t + OFF + 1, -OFF, 0))                   # jump back, off-screen
-    stops.append((t + OFF + 1 + OFF, 0, 0))                # glide back in
-    return cells, stops[-1][0], cells, stops
+    stops.append((t + OFF, COLS - 1 + OFF, last_row))   # glide off the right edge
+    stops.append((t + OFF + 1, -OFF, 0))                # jump back, off-screen
+    stops.append((t + OFF + 1 + OFF, 0, 0))             # glide back in
+    return cells, stops[-1][0], stops
 
 
 def svg(theme, seed):
     rnd = random.Random(seed)
-    cells, total, _, stops = path()
+    cells, total, stops = path()
     unit = DUR / total
     w = PAD * 2 + COLS * PITCH - GAP
     h = PAD * 2 + ROWS * PITCH - GAP
@@ -65,9 +94,9 @@ def svg(theme, seed):
            f'<g transform="translate({PAD},{PAD})" style="--e:{theme["empty"]}">']
 
     for c, r, t in cells:
-        # grey cells in the mix too, so it reads as a real graph, not a green block
-        palette = [theme["empty"]] + theme["levels"]
-        color = rnd.choices(palette, weights=(22, 22, 24, 18, 14))[0]
+        # lit cells get a random green so the name still has contribution-graph texture
+        color = (rnd.choices(theme["levels"], weights=(8, 30, 32, 30))[0]
+                 if (c, r) in LIT else theme["empty"])
         delay = -(DUR - t * unit)
         out.append(f'<rect class="d" x="{c * PITCH}" y="{r * PITCH}" width="{CELL}" '
                    f'height="{CELL}" rx="3" fill="{color}" '
@@ -75,9 +104,8 @@ def svg(theme, seed):
 
     for i in range(SEG):
         delay = 0 if i == 0 else -(DUR - i * unit)
-        op = 1 - i * 0.14
         out.append(f'<rect class="s" width="{CELL}" height="{CELL}" rx="4" '
-                   f'fill="{theme["snake"]}" opacity="{op:.2f}" '
+                   f'fill="{theme["snake"]}" opacity="{1 - i * 0.14:.2f}" '
                    f'style="animation-delay:{delay:.3f}s"/>')
 
     out += ["</g>", "</svg>"]
@@ -85,11 +113,18 @@ def svg(theme, seed):
 
 
 def check():
-    cells, total, _, stops = path()
+    cols, lit = letters()
+    expected = sum(line.count("#") for ch in TEXT if ch != " " for line in FONT[ch])
+    assert len(lit) == expected, "every glyph pixel landed on its own cell"
+    assert max(c for c, _ in lit) == cols - 1, "the last letter ends at the last column"
+    assert min(c for c, _ in lit) == 0, "the first letter starts at column 0"
+    assert all(0 <= r < ROWS for _, r in lit), "glyphs fit the grid height"
+
+    cells, total, stops = path()
     seen = {(c, r) for c, r, _ in cells}
     assert len(cells) == COLS * ROWS == len(seen), "every cell eaten exactly once"
     times = [t for _, _, t in cells]
-    assert times == sorted(times), "cells are eaten in order"
+    assert times == sorted(times), "cells are eaten left to right, E before N"
     assert times[0] == 0 and times[-1] < total, "eat times fit inside one loop"
     assert [s[0] for s in stops] == sorted(s[0] for s in stops), "keyframes ascend"
     assert stops[-1][1:] == (0, 0), "loop ends back at the start cell"
@@ -100,8 +135,8 @@ if __name__ == "__main__":
     check()
     out = sys.argv[1] if len(sys.argv) > 1 else "."
     os.makedirs(out, exist_ok=True)
-    seed = datetime.date.today().isoformat()      # new pattern every day
+    seed = datetime.date.today().isoformat()      # new shading every day
     for name, theme in (("snake-light.svg", LIGHT), ("snake-dark.svg", DARK)):
         dest = os.path.join(out, name)
         open(dest, "wb").write(svg(theme, seed + name).encode())
-        print(dest, seed)
+        print(dest, f"{COLS}x{ROWS}", seed)
